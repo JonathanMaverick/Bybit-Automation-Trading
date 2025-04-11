@@ -1,10 +1,14 @@
 import os
+import io
 import time
 import pandas as pd
 import ta
 import requests
 from dotenv import load_dotenv
-from helper import Bybit
+from utils.helper import Bybit
+import matplotlib.pyplot as plt
+import mplfinance as mpf
+import numpy as np
 
 # Load ENV
 load_dotenv()
@@ -22,7 +26,7 @@ session = Bybit(
 # Config
 SYMBOLS = ['BTCUSDT', 'ETHUSDT']
 TIMEFRAME = 1  # 1m
-RISK_PERCENT = 2
+RISK_PERCENT = 1.0  # Risk per trade in percentage
 ATR_LENGTH = 14
 ATR_MULT_BASE = 1.0
 RR = 2.0
@@ -32,7 +36,7 @@ TREND_MA = 50
 VOL_MA = 20
 MODE = 1
 LEVERAGE = 10
-MAX_POSITIONS = 200
+MAX_POSITIONS = 50  # Max open positions
 TRAILING_ATR_MULT = 1.5  # Trailing Stop multiplier
 
 def send_discord(msg):
@@ -78,6 +82,10 @@ def get_signal(symbol):
 
     return side, stop, tp, qty, trailing_distance
 
+def send_discord_image(msg, image_buffer):
+    files = {'file': ('trade.png', image_buffer, 'image/png')}
+    payload = {'content': msg}
+    requests.post(discord_webhook, data=payload, files=files)
 
 def update_trailing_stop(symbol, position):
     df = session.klines(symbol, TIMEFRAME)
@@ -101,45 +109,95 @@ def update_trailing_stop(symbol, position):
         session.edit_position_stop_loss(symbol, new_sl)
         print(f'Updated Trailing SL {symbol} {side.upper()}: {new_sl}')
 
-send_discord(f"Bot started! {session.get_balance()} USDT")
+def generate_trade_chart(df, symbol, side, entry, sl, tp):
+    apds = []
 
-while True:
-    try:
-        balance = session.get_balance()
-        print(f'Balance: {round(balance, 3)} USDT')
+    entry_line = np.full(len(df), entry)
+    sl_line = np.full(len(df), sl)
 
-        positions = session.get_positions()
-        print(f'{len(positions)} Active Positions: {positions}')
+    apds.append(mpf.make_addplot(entry_line, color='blue', linestyle='--', width=1, label='Entry'))
+    apds.append(mpf.make_addplot(sl_line, color='red', linestyle='--', width=1, label='Stop Loss'))
 
-        if len(positions) >= MAX_POSITIONS:
-            print("Max positions reached!")
-            time.sleep(60)
-            continue
+    if tp:
+        tp_line = np.full(len(df), tp)
+        apds.append(mpf.make_addplot(tp_line, color='green', linestyle='--', width=1, label='Take Profit'))
 
-        for symbol in SYMBOLS:
-            if symbol in positions:
-                update_trailing_stop(symbol, positions[symbol])
+    fig, _ = mpf.plot(
+        df,
+        type='candle',
+        style='charles',
+        addplot=apds,
+        returnfig=True,
+        volume=True,
+        title=f'{symbol} - {side.upper()}',
+        ylabel='Price',
+        ylabel_lower='Volume',
+    )
+
+    img_buf = io.BytesIO()
+    fig.savefig(img_buf, format='png')
+    img_buf.seek(0)
+    plt.close(fig)
+
+    return img_buf
+
+
+def send_discord_image(msg, image_buffer):
+    files = {'file': ('trade.png', image_buffer, 'image/png')}
+    payload = {'content': msg}
+    requests.post(discord_webhook, data=payload, files=files)
+
+def run_bot():
+    while True:
+        try:
+            balance = session.get_balance()
+            print(f'Balance: {round(balance, 3)} USDT')
+
+            positions = session.get_positions()
+            print(f'{len(positions)} Active Positions: {positions}')
+
+            if len(positions) >= MAX_POSITIONS:
+                print("Max positions reached!")
+                time.sleep(60)
                 continue
 
-            signal = get_signal(symbol)
-            if signal:
-                side, sl, tp, qty, trailing = signal
-                mark_price = float(session.get_tickers(
-                    category='linear',
-                    symbol=symbol,
-                    recv_window=10000
-                )['result']['list'][0]['markPrice'])
-                msg = f'{symbol} {mark_price} | {side.upper()} | SL: {sl} | TP: {tp} | QTY: {qty}, TRAILING: {trailing}'
-                print(msg)
-                send_discord(msg)
-                session.place_order_market(symbol, side, MODE, LEVERAGE, qty, tp, sl, trailing)
-                time.sleep(1)
+            for symbol in SYMBOLS:
+                if symbol in positions:
+                    update_trailing_stop(symbol, positions[symbol])
+                    continue
 
-        now = int(time.time())
-        wait = (TIMEFRAME * 60) - (now % (TIMEFRAME * 60))
-        print(f'Waiting {wait}s for next candle...')
-        time.sleep(wait)
+                signal = get_signal(symbol)
+                if signal:
+                    side, sl, tp, qty, trailing = signal
+                    mark_price = float(session.get_tickers(
+                        category='linear',
+                        symbol=symbol,
+                        recv_window=10000
+                    )['result']['list'][0]['markPrice'])
+                    
+                    df = session.klines(symbol, TIMEFRAME)
+                    df['time'] = pd.to_datetime(pd.to_numeric(df.index), unit='ms')
+                    df.set_index('time', inplace=True)
+                    
+                    img = generate_trade_chart(df, symbol, side, mark_price, sl, tp)
+                    send_discord_image(msg, img)
+                    
+                    msg = f'{symbol} {mark_price} | {side.upper()} | SL: {sl} | TP: {tp} | QTY: {qty}, TRAILING: {trailing}'
+                    print(msg)
+                    send_discord(msg)
+                    session.place_order_market(symbol, side, MODE, LEVERAGE, qty, tp, sl, trailing)
+                    time.sleep(1)
 
-    except Exception as e:
-        print(f'Error: {e}')
-        time.sleep(30)
+            now = int(time.time())
+            wait = (TIMEFRAME * 60) - (now % (TIMEFRAME * 60))
+            print(f'Waiting {wait}s for next candle...')
+            time.sleep(wait)
+
+
+        except Exception as e:
+            print(f'Error: {e}')
+            time.sleep(30)
+            
+if __name__ == "__main__":
+    send_discord(f"Bot started! {session.get_balance()} USDT")
+    run_bot()
