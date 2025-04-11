@@ -1,5 +1,11 @@
-from main import session, generate_trade_chart, send_discord_image
+from services.bybit_service import Bybit
+from services.discord_service import send_discord_image
+
 import pandas as pd
+from core.chart import generate_trade_chart
+
+Bybit = Bybit()
+session = Bybit.session
 
 df = session.klines('BTCUSDT', 1)
 df['time'] = pd.to_datetime(pd.to_numeric(df.index), unit='ms')

@@ -1,18 +1,20 @@
 from pybit.unified_trading import HTTP
+from config import API_KEY, API_SECRET, ACCOUNT_TYPE
 import pandas as pd
 from time import sleep
-import requests
 
 class Bybit:
-    def __init__(self, api, secret, accountType):
-        self.api = api
-        self.secret = secret
-        self.accountType = accountType
-        self.session = HTTP(api_key=self.api, api_secret=self.secret, testnet=False)
+    def __init__(self):
+        print(API_KEY, API_SECRET, ACCOUNT_TYPE)
+        self.session = HTTP(
+            testnet=False,
+            api_key=API_KEY,
+            api_secret=API_SECRET,
+        )
 
     def get_balance(self):
         try:
-            resp = self.session.get_wallet_balance(accountType=self.accountType, coin="USDT", recv_window=40000)['result']['list'][0]['coin'][0]['walletBalance']
+            resp = self.session.get_wallet_balance(accountType=ACCOUNT_TYPE, coin="USDT", recv_window=40000)['result']['list'][0]['coin'][0]['walletBalance']
             resp = round(float(resp), 3)
             return resp
         except Exception as err:
@@ -196,72 +198,5 @@ class Bybit:
                 recv_window=10000
             )
             print(resp['retMsg'])
-        except Exception as err:
-            print(err)
-
-    def place_order_limit(self, symbol, side, mode, leverage, qty=10, tp=0.012, sl=0.009):
-        self.set_mode(symbol, mode, leverage)
-        sleep(0.5)
-        self.set_leverage(symbol, leverage)
-        sleep(0.5)
-        price_precision = self.get_precisions(symbol)[0]
-        qty_precision = self.get_precisions(symbol)[1]
-        limit_price = self.session.get_tickers(
-            category='linear',
-            symbol=symbol
-        )['result']['list'][0]['lastPrice']
-        limit_price = float(limit_price)
-        print(f'Placing {side} order for {symbol}. Limit price: {limit_price}')
-        order_qty = round(qty / limit_price, qty_precision)
-        sleep(2)
-        if side == 'buy':
-            try:
-                tp_price = round(limit_price + limit_price * tp, price_precision)
-                sl_price = round(limit_price - limit_price * sl, price_precision)
-                resp = self.session.place_order(
-                    category='linear',
-                    symbol=symbol,
-                    side='Buy',
-                    orderType='Limit',
-                    price= limit_price,
-                    qty=order_qty,
-                    takeProfit=tp_price,
-                    stopLoss=sl_price,
-                    tpTriggerBy='LastPrice',
-                    slTriggerBy='LastPrice'
-                )
-                print(resp['retMsg'])
-            except Exception as err:
-                print(err)
-
-        if side == 'sell':
-            try:
-                tp_price = round(limit_price - limit_price * tp, price_precision)
-                sl_price = round(limit_price + limit_price * sl, price_precision)
-                resp = self.session.place_order(
-                    category='linear',
-                    symbol=symbol,
-                    side='Sell',
-                    orderType='Limit',
-                    price=limit_price,
-                    qty=order_qty,
-                    takeProfit=tp_price,
-                    stopLoss=sl_price,
-                    tpTriggerBy='LastPrice',
-                    slTriggerBy='LastPrice'
-                )
-                print(resp['retMsg'])
-            except Exception as err:
-                print(err)
-
-    def send_tg(self, key, tg_id, text):
-        try:
-            url = f'https://api.telegram.org/bot{key}/sendMessage'
-            data = {
-                'chat_id': tg_id,
-                'text': text
-            }
-            resp = requests.post(url, data=data)
-            print(resp)
         except Exception as err:
             print(err)
