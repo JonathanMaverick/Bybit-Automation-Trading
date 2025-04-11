@@ -55,6 +55,18 @@ class Bybit:
             return round(pnl, 4)
         except Exception as err:
             print(err)
+            
+    def get_mark_price(self, symbol):
+        try:
+            ticker = self.session.get_tickers(
+                category='linear',
+                symbol=symbol,
+                recv_window=10000
+            )
+            return float(ticker.get('result', {}).get('list', [{}])[0].get('markPrice', 0))
+        except Exception as e:
+            print(f"Failed to fetch mark price for {symbol} -> {e}")
+            return 0
 
     def get_tickers(self):
         try:

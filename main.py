@@ -169,11 +169,7 @@ def run_bot():
                 signal = get_signal(symbol)
                 if signal:
                     side, sl, tp, qty, trailing = signal
-                    mark_price = float(session.get_tickers(
-                        category='linear',
-                        symbol=symbol,
-                        recv_window=10000
-                    )['result']['list'][0]['markPrice'])
+                    mark_price = session.get_mark_price(session, symbol)
                     
                     df = session.klines(symbol, TIMEFRAME)
                     df['time'] = pd.to_datetime(pd.to_numeric(df.index), unit='ms')
