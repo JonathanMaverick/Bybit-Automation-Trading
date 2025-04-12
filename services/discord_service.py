@@ -1,5 +1,4 @@
 import requests
-import io
 from PIL import Image
 from config import DISCORD_WEBHOOK
 
@@ -24,12 +23,8 @@ def send_discord_image(message: str, image: Image.Image):
         print("Discord Webhook not configured.")
         return
 
-    buffered = io.BytesIO()
-    image.save(buffered, format="PNG")
-    buffered.seek(0)
-
     files = {
-        'file': ('chart.png', buffered, 'image/png')
+        "file": ("chart.png", image, "image/png")
     }
 
     payload = {

@@ -1,12 +1,15 @@
 from pybit.unified_trading import HTTP
-from config import API_KEY, API_SECRET, ACCOUNT_TYPE
+from config import API_KEY, API_SECRET, ACCOUNT_TYPE, MAX_POSITIONS, TIME_THRESHOLD
 import pandas as pd
 from time import sleep
+from datetime import datetime
+from openpyxl import load_workbook
+from openpyxl.styles import PatternFill
+from services.discord_service import send_discord
 
 class Bybit:
     def __init__(self):
-        print(API_KEY, API_SECRET, ACCOUNT_TYPE)
-        self.session = HTTP(
+        self.client = HTTP(
             testnet=False,
             api_key=API_KEY,
             api_secret=API_SECRET,
@@ -14,73 +17,117 @@ class Bybit:
 
     def get_balance(self):
         try:
-            resp = self.session.get_wallet_balance(accountType=ACCOUNT_TYPE, coin="USDT", recv_window=40000)['result']['list'][0]['coin'][0]['walletBalance']
-            resp = round(float(resp), 3)
-            return resp
-        except Exception as err:
-            print(err)
+            result = self.client.get_wallet_balance(accountType=ACCOUNT_TYPE, coin="USDT")
+            balance = float(result['result']['list'][0]['coin'][0]['walletBalance'])
+            return round(balance, 3)
+        except Exception as e:
+            print(f"get_balance error: {e}")
+            return 0.0
 
     def get_positions(self):
         try:
-            resp = self.session.get_positions(
-                category='linear',
-                settleCoin='USDT',
-                recv_window = 40000
-            )['result']['list']
-            pos = []
-            for elem in resp:
-                pos.append(elem['symbol'])
-            return pos
-        except Exception as err:
-            print(err)
+            result = self.client.get_positions(category="linear", settleCoin="USDT")
+            return [pos['symbol'] for pos in result['result']['list']]
+        except Exception as e:
+            print(f"get_positions error: {e}")
+            return []
 
-    def get_last_pnl(self, limit=50):
+    def check_closed_pnl(self):
         try:
-            resp = self.session.get_closed_pnl(category="linear", limit=limit, recv_window=40000)['result']['list']
-            pnl = 0
-            for elem in resp:
-                pnl += float(elem['closedPnl'])
-            return round(pnl, 4)
-        except Exception as err:
-            print(err)
+            df = pd.read_excel('closed_positions_pnl.xlsx')
+        except FileNotFoundError:
+            df = pd.DataFrame(columns=['Symbol', 'UpdatedTime','Position', 'ClosedPnl'])
 
-    def get_current_pnl(self):
-        try:
-            resp = self.session.get_positions(
-                category="linear",
-                settleCoin="USDT",
-                recv_window=10000
-            )['result']['list']
-            pnl = 0
-            for elem in resp:
-                pnl += float(elem['unrealisedPnl'])
-            return round(pnl, 4)
-        except Exception as err:
-            print(err)
+        pnl_list = self.client.get_closed_pnl(category="linear", limit=MAX_POSITIONS)['result']['list']
 
-    def get_tickers(self):
-        try:
-            resp = self.session.get_tickers(category="linear", recv_window=10000)['result']['list']
-            symbols = []
-            for elem in resp:
-                if 'USDT' in elem['symbol'] and not 'USDC' in elem['symbol']:
-                    symbols.append(elem['symbol'])
-            return symbols
-        except Exception as err:
-            print(err)
+        if pnl_list:
+            for position in pnl_list:
+                symbol = position['symbol']
+                closed_pnl = float(position['closedPnl']) 
+                updated_time = position['updatedTime']
+                side = position['side'].capitalize()
+                position_type = 'LONG' if side == 'Buy' else 'SHORT'
 
-    def klines(self, symbol, timeframe, limit=500):
+                if int(updated_time) <= TIME_THRESHOLD:
+                    continue
+                updated_time = datetime.utcfromtimestamp(int(updated_time) / 1000).strftime('%Y-%m-%d %H:%M:%S')
+
+                if df[(df['Symbol'] == symbol) & (df['UpdatedTime'] == updated_time)].empty:
+                    new_row = pd.DataFrame({
+                        'Symbol': [symbol],
+                        'ClosedPnl': [closed_pnl],
+                        'UpdatedTime': [updated_time],
+                        'Position': [position_type] 
+                    })
+                    df = pd.concat([df, new_row], ignore_index=True)
+                    msg = (
+                        f"[CLOSED] {symbol} | "
+                        f"Closed PnL: {closed_pnl} | "
+                        f"Updated Time: {updated_time}"
+                    )
+                    print(msg)
+                    send_discord(msg)
+                    self.calculate_total_pnl()
+            
+            df.to_excel('closed_positions_pnl.xlsx', index=False)
+
+            wb = load_workbook('closed_positions_pnl.xlsx')
+            ws = wb.active
+
+            green_fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
+            red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
+            yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+
+            for row in range(2, len(df) + 2):
+                pnl_cell = ws.cell(row=row, column=4)
+                if pnl_cell.value is not None:
+                    if pnl_cell.value < 0:
+                        pnl_cell.fill = red_fill 
+                    elif pnl_cell.value > 0:
+                        pnl_cell.fill = green_fill
+                    else:
+                        pnl_cell.fill = yellow_fill 
+            
+            wb.save('closed_positions_pnl.xlsx')
+        else:
+            print("No closed positions found.")
+    
+    def calculate_total_pnl(self):
+        df = pd.read_excel('closed_positions_pnl.xlsx')
+        total_pnl = df['ClosedPnl'].sum()
+        msg = f"Total Profit/Loss: {total_pnl} USDT"
+        print(msg)
+        send_discord(msg)
+
+    def get_symbols(self):
         try:
-            resp = self.session.get_kline(
+            result = self.client.get_tickers(category="linear")
+            return [s['symbol'] for s in result['result']['list'] if "USDT" in s['symbol'] and "USDC" not in s['symbol']]
+        except Exception as e:
+            print(f"get_symbols error: {e}")
+            return []
+
+    def get_mark_price(self, symbol):
+        try:
+            result = self.client.get_tickers(category="linear", symbol=symbol)
+            return float(result['result']['list'][0]['markPrice'])
+        except Exception as e:
+            print(f"get_mark_price error: {e}")
+            return 0.0
+
+    def get_klines(self, symbol, timeframe, limit=500):
+        try:
+            resp = self.client.get_kline(
                 category='linear',
                 symbol=symbol,
                 interval=timeframe,
                 limit=limit,
                 recv_window=7000
             )['result']['list']
+            
             resp = pd.DataFrame(resp)
-            resp.columns = ['Time', 'Open', 'High', 'Low', 'Close', 'Volume', 'Turnover']
-            resp = resp.set_index('Time')
+            resp.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'turnover']
+            resp = resp.set_index('timestamp')
             resp = resp.astype(float)
             resp = resp[::-1]
             return resp
@@ -89,114 +136,104 @@ class Bybit:
 
     def get_precisions(self, symbol):
         try:
-            resp = self.session.get_instruments_info(
-                category='linear',
-                symbol=symbol,
-                recv_window=10000
-            )['result']['list'][0]
-            price = resp['priceFilter']['tickSize']
-            if '.' in price:
-                price = len(price.split('.')[1])
-            else:
-                price = 0
-            qty = resp['lotSizeFilter']['qtyStep']
-            if '.' in qty:
-                qty = len(qty.split('.')[1])
-            else:
-                qty = 0
-            return price, qty
-        except Exception as err:
-            print(err)
+            result = self.client.get_instruments_info(category="linear", symbol=symbol)
+            data = result['result']['list'][0]
+            price_precision = len(data['priceFilter']['tickSize'].split('.')[1]) if '.' in data['priceFilter']['tickSize'] else 0
+            qty_precision = len(data['lotSizeFilter']['qtyStep'].split('.')[1]) if '.' in data['lotSizeFilter']['qtyStep'] else 0
+            return price_precision, qty_precision
+        except Exception as e:
+            print(f"get_precisions error: {e}")
+            return 0, 0
 
     def get_max_leverage(self, symbol):
         try:
-            resp = self.session.get_instruments_info(
-                category="linear",
-                symbol=symbol,
-                recv_window=10000
-            )['result']['list'][0]['leverageFilter']['maxLeverage']
-            return float(resp)
-        except Exception as err:
-            print(err)
+            result = self.client.get_instruments_info(category="linear", symbol=symbol)
+            return float(result['result']['list'][0]['leverageFilter']['maxLeverage'])
+        except Exception as e:
+            print(f"get_max_leverage error: {e}")
+            return 0.0
 
     def set_mode(self, symbol, mode=1, leverage=10):
         try:
-            resp = self.session.switch_margin_mode(
-                category='linear',
-                symbol=symbol,
-                tradeMode=str(mode),
-                buyLeverage=str(leverage),
-                sellLeverage=str(leverage),
-                recv_window=10000
-            )
+            resp = self.client.switch_margin_mode(category="linear", symbol=symbol, tradeMode=str(mode),
+                                                  buyLeverage=str(leverage), sellLeverage=str(leverage))
             if resp['retMsg'] == 'OK':
-                if mode == 1:
-                    print(f'[{symbol}] Changed margin mode to ISOLATED')
-                if mode == 0:
-                    print(f'[{symbol}] Changed margin mode to CROSS')
-        except Exception as err:
-            if '110026' in str(err):
-                print(f'[{symbol}] Margin mode is Not changed')
+                mode_str = 'ISOLATED' if mode == 1 else 'CROSS'
+                print(f"[{symbol}] Margin mode set to {mode_str}")
+        except Exception as e:
+            if '110026' in str(e):
+                print(f"[{symbol}] Margin mode unchanged")
             else:
-                print(err)
+                print(f"set_mode error: {e}")
 
     def set_leverage(self, symbol, leverage=10):
         try:
-            resp = self.session.set_leverage(
-                category="linear",
-                symbol=symbol,
-                buyLeverage=str(leverage),
-                sellLeverage=str(leverage),
-                recv_window=10000
-            )
+            resp = self.client.set_leverage(category="linear", symbol=symbol,
+                                            buyLeverage=str(leverage), sellLeverage=str(leverage))
             if resp['retMsg'] == 'OK':
-                print(f'[{symbol}] Changed leverage to {leverage}')
-        except Exception as err:
-            if '110043' in str(err):
-                print(f'[{symbol}] Leverage is Not changed')
+                print(f"[{symbol}] Leverage set to {leverage}")
+        except Exception as e:
+            if '110043' in str(e):
+                print(f"[{symbol}] Leverage unchanged")
             else:
-                print(err)
+                print(f"set_leverage error: {e}")
 
-    def place_order_market(self, symbol, side, mode, leverage, qty, tp, sl, trailing):
+    def place_market_order(self, symbol, side, mode, leverage, qty, tp, sl, trailing):
         self.set_mode(symbol, mode, leverage)
         sleep(0.5)
         self.set_leverage(symbol, leverage)
         sleep(0.5)
 
         price_precision, qty_precision = self.get_precisions(symbol)
-        mark_price = float(self.session.get_tickers(
-            category='linear',
-            symbol=symbol,
-            recv_window=10000
-        )['result']['list'][0]['markPrice'])
-
-        print(f'Placing {side} order for {symbol}. Mark price: {mark_price}')
-
         order_qty = round(qty, qty_precision)
-        tp_price = sl_price = None
+        tp = round(tp, price_precision) if tp else None
+        sl = round(sl, price_precision) if sl else None
+        trailing_stop = str(round(float(trailing), price_precision))
 
-        if side == 'buy':
-            tp_price = round(tp)
-            sl_price = round(sl)
-
-        elif side == 'sell':
-            tp_price = round(tp)
-            sl_price = round(sl)
-
+        print(f"Placing {side.upper()} market order on {symbol}")
         try:
-            resp = self.session.place_order(
-                category='linear',
+            resp = self.client.place_order(
+                category="linear",
                 symbol=symbol,
                 side=side.capitalize(),
-                orderType='Market',
+                orderType="Market",
                 qty=order_qty,
-                takeProfit=tp_price,
-                stopLoss=sl_price,
-                tpTriggerBy='Market',
-                slTriggerBy='Market',
-                trailingStop=str(round(trailing, price_precision)) if trailing > 0 else None,
-                recv_window=10000
+                takeProfit=tp,
+                stopLoss=sl,
+                tpTriggerBy="LastPrice",
+                slTriggerBy="LastPrice",
+                trailingStop=trailing_stop
             )
             print(resp['retMsg'])
-        except Exception as err:
-            print(err)
+        except Exception as e:
+            print(f"place_market_order error: {e}")
+            
+    def set_trailing_stop(self, symbol, side, trailing_stop):
+        try:
+            resp = self.client.set_trailing_stop(
+                category="linear",
+                symbol=symbol,
+                side=side.capitalize(),
+                trailingStop=trailing_stop
+            )
+            if resp['retMsg'] == 'OK':
+                print(f"Trailing stop updated for {side.upper()} {symbol}")
+            else:
+                print(f"Error setting trailing stop: {resp['retMsg']}")
+        except Exception as e:
+            print(f"set_trailing_stop error: {e}")
+            
+    def get_position_details(self, symbol):
+        try:
+            result = self.client.get_positions(category="linear", settleCoin="USDT")
+            
+            for pos in result['result']['list']:
+                if pos['symbol'] == symbol:
+                    return pos 
+
+            print(f"No position found for {symbol}")
+            return None
+        
+        except Exception as e:
+            print(f"get_position_details error: {e}")
+            return None
