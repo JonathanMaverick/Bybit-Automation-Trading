@@ -207,7 +207,7 @@ class Bybit:
         except Exception as e:
             print(f"place_market_order error: {e}")
             
-    def set_trailing_stop(self, symbol, side, trailing_stop):
+    def set_trailing_stop(self, symbol, trailing_stop):
         try:
             trailing_stop_str = str(trailing_stop)
             resp = self.client.set_trading_stop(

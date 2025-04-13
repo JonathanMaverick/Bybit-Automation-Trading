@@ -5,14 +5,13 @@ from config import MAX_POSITIONS, SYMBOLS, TIMEFRAME, MODE, LEVERAGE
 from services.bybit_service import Bybit
 from services.discord_service import send_discord, send_discord_image
 from core.strategy import Strategy
-from core.trailing_stop import update_trailing_stop
 from core.chart import generate_trade_chart
 
 
 def process_signal(session: Bybit, symbol: str):
     strategy = Strategy(session, symbol)
-    signal = strategy.generate_signal()
     print(f'Processing {symbol}...')
+    signal = strategy.generate_signal()
 
     if not signal:
         return
@@ -48,7 +47,7 @@ def process_signal(session: Bybit, symbol: str):
     send_discord_image(msg, img)
 
     session.place_market_order(symbol, side, MODE, LEVERAGE, qty, tp, sl, trailing_stop)
-    session.set_trailing_stop(symbol, side.title, trailing_stop)
+    session.set_trailing_stop(symbol, trailing_stop)
     time.sleep(1)
 
 def run_bot(session: Bybit):
@@ -65,9 +64,6 @@ def run_bot(session: Bybit):
                 if len(positions) >= MAX_POSITIONS:
                     print("Max positions reached!")
                     break
-                # if symbol in positions:
-                #     update_trailing_stop(symbol, session)  
-                # else:
                 process_signal(session, symbol)
                 time.sleep(0.05)
 

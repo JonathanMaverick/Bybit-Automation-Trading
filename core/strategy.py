@@ -47,7 +47,7 @@ class Strategy:
         df['EMA_FAST'] = ta.trend.ema_indicator(df['close'], FAST_MA)
         df['EMA_SLOW'] = ta.trend.ema_indicator(df['close'], SLOW_MA)
         df['EMA_TREND'] = ta.trend.ema_indicator(df['close'], TREND_MA)
-        df['EMA_200'] = ta.trend.ema_indicator(df['close'], MAJOR_TREND_MA)
+        df['MAJOR_TREND_EMA'] = ta.trend.ema_indicator(df['close'], MAJOR_TREND_MA)
         df['ATR'] = ta.volatility.average_true_range(df['high'], df['low'], df['close'], ATR_LENGTH)
         df['VOL_MA'] = df['volume'].rolling(VOL_MA).mean()
         
@@ -61,29 +61,32 @@ class Strategy:
             return None
         
         dynamic_threshold = self.get_dynamic_volume_threshold(c.ATR, c.close)
-        if c.volume < c.VOL_MA * dynamic_threshold:
+        volume_cutoff = c.VOL_MA * dynamic_threshold
+        if c.volume < c.VOL_MA * volume_cutoff:
             return None
         
-        if(p.EMA_FAST < p.EMA_SLOW and c.EMA_FAST > c.EMA_SLOW and
-            c.close > c.EMA_TREND and
-            (not USE_MAJOR_TREND or c.close > c.EMA_200) and
-            p['%K'] < p['%D'] and c['%K'] > c['%D'] and p['%K'] < 20
-        ):
+        is_bullish_crossover = p.EMA_FAST < p.EMA_SLOW and c.EMA_FAST > c.EMA_SLOW
+        is_bearish_crossover = p.EMA_FAST > p.EMA_SLOW and c.EMA_FAST < c.EMA_SLOW
+
+        in_uptrend = c.close > c.EMA_TREND
+        in_downtrend = c.close < c.EMA_TREND
+
+        pass_major_trend_buy = not USE_MAJOR_TREND or c.close > c.MAJOR_TREND_EMA
+        pass_major_trend_sell = not USE_MAJOR_TREND or c.close < c.MAJOR_TREND_EMA
+
+        stoch_buy_signal = p['%K'] < p['%D'] and c['%K'] > c['%D'] and p['%K'] < 20
+        stoch_sell_signal = p['%K'] > p['%D'] and c['%K'] < c['%D'] and p['%K'] > 80
+
+        if is_bullish_crossover and in_uptrend and pass_major_trend_buy and stoch_buy_signal:
             side = 'buy'
-        elif (
-            p.EMA_FAST > p.EMA_SLOW and c.EMA_FAST < c.EMA_SLOW and
-            c.close < c.EMA_TREND and
-            (not USE_MAJOR_TREND or c.close < c.EMA_200) and
-            p['%K'] > p['%D'] and c['%K'] < c['%D'] and p['%K'] > 80
-        ):
+        elif is_bearish_crossover and in_downtrend and pass_major_trend_sell and stoch_sell_signal:
             side = 'sell'
         else:
             return None
-
         
         entry = self.session.get_mark_price(self.symbol)
         
-        raw_mult = ATR_MULT_BASE + (c.ATR / c.close) * 8
+        raw_mult = ATR_MULT_BASE + (c.ATR / c.close) * 4
         atr_mult = max(0.5, min(2.0, raw_mult))
         
         sl = entry - c.ATR * atr_mult if side == 'buy' else entry + c.ATR * atr_mult
