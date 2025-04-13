@@ -12,57 +12,39 @@ ACCOUNT_TYPE = os.getenv("ACCOUNT_TYPE")
 SYMBOLS = [
     'BTCUSDT',
     'ETHUSDT',
-    'BNBUSDT',
     'SOLUSDT',
-    'XRPUSDT',
     'DOGEUSDT',
-    'ADAUSDT',
     'AVAXUSDT',
-    'LINKUSDT',
-    'DOTUSDT',
     'ARBUSDT',
     'OPUSDT',
-    'ATOMUSDT',
-    'APTUSDT',
-    'NEARUSDT',
-    'INJUSDT',
-    'FILUSDT',
-    'LTCUSDT',
-    'ETCUSDT',
-    'APEUSDT',
-    'DYDXUSDT',
-    'SUIUSDT',
+    'LINKUSDT',
     '1000PEPEUSDT',
-    'SEIUSDT',
-    'STXUSDT',
-    'TIAUSDT',
-    '1000FLOKIUSDT',
-    'BLURUSDT',
-    'GALAUSDT',
-    'SANDUSDT',
-    'AXSUSDT',
-    'GMTUSDT',
+    'APTUSDT',
+    'INJUSDT',
     'LDOUSDT',
-    'AAVEUSDT',
-    'UNIUSDT',
-    'CRVUSDT',
-    'YFIUSDT',
-    'TAOUSDT',
+    'BLURUSDT',
+    'ADAUSDT',
+    'SUIUSDT',
+    'WIFUSDT',   # kalau suka scalping memecoin
+    'SEIUSDT',
+    'TIAUSDT'
 ]
-TIMEFRAME = 5
+TIMEFRAME = 3
 MODE = 1
-LEVERAGE = 20
-RISK_PERCENT = 0.5
+LEVERAGE = 10
+RISK_PERCENT = 1
 ATR_LENGTH = 14
-ATR_MULT_BASE = 1.0
-RR = 2.0
-FAST_MA = 7
-SLOW_MA = 20
+ATR_MULT_BASE = 0.8
+RR = 2
+FAST_MA = 9
+SLOW_MA = 21
 TREND_MA = 50
-VOL_MA = 20
-MAX_POSITIONS = 8
-TRAILING_ATR_MULT = 1.5 
+MAJOR_TREND_MA = 89
+VOL_MA = 10
+MAX_POSITIONS = 3
+TRAILING_ATR_MULT = 1.5
 TIME_THRESHOLD = 1744113206696
+USE_MAJOR_TREND = True
 
 # Discord Webhook
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")

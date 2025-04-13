@@ -60,6 +60,7 @@ class Bybit:
                         'Position': [position_type] 
                     })
                     df = pd.concat([df, new_row], ignore_index=True)
+                    df.to_excel('closed_positions_pnl.xlsx', index=False)
                     msg = (
                         f"[CLOSED] {symbol} | "
                         f"Closed PnL: {closed_pnl} | "
@@ -69,8 +70,6 @@ class Bybit:
                     send_discord(msg)
                     self.calculate_total_pnl()
             
-            df.to_excel('closed_positions_pnl.xlsx', index=False)
-
             wb = load_workbook('closed_positions_pnl.xlsx')
             ws = wb.active
 
@@ -95,7 +94,7 @@ class Bybit:
     def calculate_total_pnl(self):
         df = pd.read_excel('closed_positions_pnl.xlsx')
         total_pnl = df['ClosedPnl'].sum()
-        msg = f"Total Profit/Loss: {total_pnl} USDT"
+        msg = f"`Total Profit/Loss: {total_pnl} USDT 💵💵💵`"
         print(msg)
         send_discord(msg)
 
@@ -202,7 +201,7 @@ class Bybit:
                 stopLoss=sl,
                 tpTriggerBy="LastPrice",
                 slTriggerBy="LastPrice",
-                trailingStop=trailing_stop
+                trailingStop=trailing_stop,    
             )
             print(resp['retMsg'])
         except Exception as e:
@@ -210,14 +209,14 @@ class Bybit:
             
     def set_trailing_stop(self, symbol, side, trailing_stop):
         try:
-            resp = self.client.set_trailing_stop(
+            trailing_stop_str = str(trailing_stop)
+            resp = self.client.set_trading_stop(
                 category="linear",
                 symbol=symbol,
-                side=side.capitalize(),
-                trailingStop=trailing_stop
+                trailingStop=trailing_stop_str
             )
             if resp['retMsg'] == 'OK':
-                print(f"Trailing stop updated for {side.upper()} {symbol}")
+                print(f"Trailing stop updated for {symbol}")
             else:
                 print(f"Error setting trailing stop: {resp['retMsg']}")
         except Exception as e:

@@ -48,7 +48,7 @@ def process_signal(session: Bybit, symbol: str):
     send_discord_image(msg, img)
 
     session.place_market_order(symbol, side, MODE, LEVERAGE, qty, tp, sl, trailing_stop)
-    session.set_trailing_stop(symbol, side.title(), LEVERAGE, trailing_stop)
+    session.set_trailing_stop(symbol, side.title, trailing_stop)
     time.sleep(1)
 
 def run_bot(session: Bybit):
@@ -61,17 +61,15 @@ def run_bot(session: Bybit):
             positions = session.get_positions()
             print(f'{len(positions)} Active Positions: {positions}')
 
-            if len(positions) >= MAX_POSITIONS:
-                print("Max positions reached!")
-                for symbol in positions:
-                    update_trailing_stop(symbol, session)
-            else:
-                for symbol in SYMBOLS:
-                    if symbol in positions:
-                        update_trailing_stop(symbol, session)  
-                    else:
-                        process_signal(session, symbol)
-                        time.sleep(0.05)
+            for symbol in SYMBOLS:
+                if len(positions) >= MAX_POSITIONS:
+                    print("Max positions reached!")
+                    break
+                # if symbol in positions:
+                #     update_trailing_stop(symbol, session)  
+                # else:
+                process_signal(session, symbol)
+                time.sleep(0.05)
 
             now = int(time.time())
             wait = (TIMEFRAME * 60) - (now % (TIMEFRAME * 60))
@@ -88,11 +86,13 @@ if __name__ == "__main__":
     balance = round(session.get_balance(), 3)
     positions = session.get_positions()
     msg = (
-        f'======================\n'
-        f'Bot started!\n'
+        '```'
+        f'============================================\n'
+        f'Bot started! 🤓🤓🤓🤓\n'
         f'Balance: {balance} USDT\n'
         f'{len(positions)} Active Positions : {positions}\n'
-        f'======================'
+        f'============================================'
+        '```'
     )
     send_discord(msg)
     print(msg)
