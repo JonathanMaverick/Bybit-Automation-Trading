@@ -29,22 +29,23 @@ SYMBOLS = [
     'SEIUSDT',
     'TIAUSDT'
 ]
+
 TIMEFRAME = 3
 MODE = 1
 LEVERAGE = 10
-RISK_PERCENT = 0.7
+RISK_PERCENT = 1
 ATR_LENGTH = 14
-ATR_MULT_BASE = 1.2 #Naikin ini kalau sering kena stop loss
-RR = 2
-FAST_MA = 9
-SLOW_MA = 21
-TREND_MA = 50 
-MAJOR_TREND_MA = 89 
-VOL_MA = 10 
-MAX_POSITIONS = 3 # max open positions
-TRAILING_ATR_MULT = 2 # multiplier for trailing stop loss based on ATR
-TIME_THRESHOLD = 1744113206696
-USE_MAJOR_TREND = True
+ATR_MULT_BASE = 1.2  # Lower to reduce stop-loss hits on fast moves
+RR = 1.5 # Slightly lower for quicker trades
+FAST_MA = 5  # Faster MA for quicker reaction
+SLOW_MA = 21  # Standard slower MA
+TREND_MA = 55  # Slightly lower trend filter
+MAJOR_TREND_MA = 80  # Faster reaction to major trend changes
+VOL_MA = 10  # Slightly higher volume filter to avoid too much noise
+MAX_POSITIONS = 3  # Keep max positions as is
+TRAILING_ATR_MULT = 1.8  # Tighter trailing stop to capture fast moves
+TIME_THRESHOLD = 1744113206696  # Ensure correct timestamp, or remove if unnecessary
+USE_MAJOR_TREND = True  # Keep major trend filter
 
 # Discord Webhook
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
