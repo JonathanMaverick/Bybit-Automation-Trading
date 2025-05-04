@@ -1,0 +1,9 @@
+pandas
+ta
+requests
+python-dotenv
+matplotlib
+mplfinance
+numpy
+pybit
+pandas
