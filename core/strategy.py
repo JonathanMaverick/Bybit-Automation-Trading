@@ -1,108 +1,95 @@
 import pandas as pd
 import ta
-from ta.momentum import StochasticOscillator
 from config import (
     TIMEFRAME,
-    FAST_MA,
-    SLOW_MA,
-    TREND_MA,
     ATR_LENGTH,
-    ATR_MULT_BASE,
-    RR,
     RISK_PERCENT,
-    VOL_MA,
     TRAILING_ATR_MULT,
-    MAJOR_TREND_MA,
-    USE_MAJOR_TREND,
-    )
+)
 from datetime import datetime, time
 
 class Strategy:
     def __init__(self, session, symbol):
         self.session = session
         self.symbol = symbol
-    
-    def get_dynamic_volume_threshold(self, atr_value, close_price):
-        atr_ratio = atr_value / close_price
-
-        # Kalau volatilitas tinggi (atr_ratio > 1%), kita lebih fleksibel (turunin threshold)
-        if atr_ratio > 0.01:
-            return 0.75  # lebih longgar, sinyal tetap diproses meski volume rendah
-        elif atr_ratio < 0.005:
-            return 0.9   # market tenang, hanya lanjut jika volume cukup besar
-        else:
-            return 0.8   # default
 
     def generate_signal(self):
         now_utc = datetime.utcnow().time()
         if now_utc >= time(0, 0) and now_utc <= time(8, 0):
             return None
-        
+
         df = self.session.get_klines(self.symbol, TIMEFRAME)
         df['time'] = pd.to_datetime(pd.to_numeric(df.index), unit='ms')
         df.set_index('time', inplace=True)
-        if len(df) < SLOW_MA + 10:
+
+        if len(df) < ATR_LENGTH + 10:
             return None
-        
-        df['EMA_FAST'] = ta.trend.ema_indicator(df['close'], FAST_MA)
-        df['EMA_SLOW'] = ta.trend.ema_indicator(df['close'], SLOW_MA)
-        df['EMA_TREND'] = ta.trend.ema_indicator(df['close'], TREND_MA)
-        df['MAJOR_TREND_EMA'] = ta.trend.ema_indicator(df['close'], MAJOR_TREND_MA)
-        df['ATR'] = ta.volatility.average_true_range(df['high'], df['low'], df['close'], ATR_LENGTH)
-        df['VOL_MA'] = df['volume'].rolling(VOL_MA).mean()
-        
-        stoch = StochasticOscillator(high=df['high'], low=df['low'], close=df['close'], window=14, smooth_window=3)
-        df['%K'] = stoch.stoch()
-        df['%D'] = stoch.stoch_signal()
+
+        # Indicators
+        atr = ta.volatility.AverageTrueRange(df['high'], df['low'], df['close'], ATR_LENGTH).average_true_range()
+        df['atr'] = atr
+        df['rsi'] = ta.momentum.RSIIndicator(df['close'], 14).rsi()
+        df['avg_volume'] = df['volume'].rolling(20).mean()
+        df['body'] = (df['close'] - df['open']).abs()
+        df['strong_candle'] = df['body'] > (df['atr'] * 1.0)
+        df['high_volume'] = df['volume'] > df['avg_volume'] * 1.2
+
+        # Supertrend calculation
+        def calculate_supertrend(df, multiplier):
+            hl2 = (df['high'] + df['low']) / 2
+            atr = df['atr']
+            upperband = hl2 + multiplier * atr
+            lowerband = hl2 - multiplier * atr
+            supertrend = pd.Series(index=df.index, dtype='float64')
+            direction = pd.Series(index=df.index, dtype='int')
+
+            for i in range(1, len(df)):
+                if df['close'].iloc[i] > upperband.iloc[i - 1]:
+                    direction.iloc[i] = 1
+                elif df['close'].iloc[i] < lowerband.iloc[i - 1]:
+                    direction.iloc[i] = -1
+                else:
+                    direction.iloc[i] = direction.iloc[i - 1] if i > 1 else 1
+                supertrend.iloc[i] = lowerband.iloc[i] if direction.iloc[i] == 1 else upperband.iloc[i]
+
+            return supertrend, direction
+
+        df['supertrend'], df['direction'] = calculate_supertrend(df, 5.5)
 
         c, p = df.iloc[-1], df.iloc[-2]
-        
         if c.isna().any() or p.isna().any():
             return None
-        
-        dynamic_threshold = self.get_dynamic_volume_threshold(c.ATR, c.close)
-        volume_cutoff = c.VOL_MA * dynamic_threshold
-        if c.volume < c.VOL_MA * volume_cutoff:
-            return None
-        
-        is_bullish_crossover = p.EMA_FAST < p.EMA_SLOW and c.EMA_FAST > c.EMA_SLOW
-        is_bearish_crossover = p.EMA_FAST > p.EMA_SLOW and c.EMA_FAST < c.EMA_SLOW
 
-        in_uptrend = c.close > c.EMA_TREND
-        in_downtrend = c.close < c.EMA_TREND
+        buy_signal = (
+            c['direction'] == 1 and c['strong_candle'] and c['high_volume'] and c['rsi'] < 70
+        )
+        sell_signal = (
+            c['direction'] == -1 and c['strong_candle'] and c['high_volume'] and c['rsi'] > 30
+        )
 
-        pass_major_trend_buy = not USE_MAJOR_TREND or c.close > c.MAJOR_TREND_EMA
-        pass_major_trend_sell = not USE_MAJOR_TREND or c.close < c.MAJOR_TREND_EMA
-
-        stoch_buy_signal = p['%K'] < p['%D'] and c['%K'] > c['%D'] and p['%K'] < 20
-        stoch_sell_signal = p['%K'] > p['%D'] and c['%K'] < c['%D'] and p['%K'] > 80
-
-        if is_bullish_crossover and in_uptrend and pass_major_trend_buy and stoch_buy_signal:
+        if buy_signal:
             side = 'buy'
-        elif is_bearish_crossover and in_downtrend and pass_major_trend_sell and stoch_sell_signal:
+        elif sell_signal:
             side = 'sell'
         else:
             return None
-        
-        entry = self.session.get_mark_price(self.symbol)
-        
-        raw_mult = ATR_MULT_BASE + (c.ATR / c.close) * 4
-        atr_mult = max(0.5, min(2.0, raw_mult))
-        
-        sl = entry - c.ATR * atr_mult if side == 'buy' else entry + c.ATR * atr_mult
-        risk = abs(entry - sl)
-        tp = entry + risk * RR if side == 'buy' else entry - risk * RR
 
-        #Risk Management
+        entry = self.session.get_mark_price(self.symbol)
+
+        atr_mult = 6.0
+        sl = entry - c.atr * atr_mult if side == 'buy' else entry + c.atr * atr_mult
+        risk = abs(entry - sl)
+        tp = entry + risk * 2.0 if side == 'buy' else entry - risk * 2.0
+
         balance = self.session.get_balance()
         risk_per_trade = balance * RISK_PERCENT / 100
         qty = risk_per_trade / risk
-        trailing = c.ATR * TRAILING_ATR_MULT
-        
+        trailing = c.atr * TRAILING_ATR_MULT
+
         price_precision, qty_precision = self.session.get_precisions(self.symbol)
         order_qty = round(qty, qty_precision)
-        tp = round(tp, price_precision) if tp else None
-        sl = round(sl, price_precision) if sl else None
+        tp = round(tp, price_precision)
+        sl = round(sl, price_precision)
         trailing_stop = str(round(trailing, price_precision)) if trailing > 0 else None
-        
+
         return side, sl, tp, order_qty, trailing_stop

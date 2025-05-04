@@ -38,7 +38,7 @@ class Bybit:
         except FileNotFoundError:
             df = pd.DataFrame(columns=['Symbol', 'UpdatedTime','Position', 'ClosedPnl'])
 
-        pnl_list = self.client.get_closed_pnl(category="linear", limit=MAX_POSITIONS)['result']['list']
+        pnl_list = self.client.get_closed_pnl(category="linear", limit=50)['result']['list']
 
         if pnl_list:
             for position in pnl_list:
