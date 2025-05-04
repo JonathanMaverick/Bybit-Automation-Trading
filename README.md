@@ -6,6 +6,29 @@
 ## Overview
 This repository contains a Python script for automating trading on the Bybit exchange using the Bybit API. The script is designed to place buy and sell orders based on specific conditions and manage open positions.
 
+## Installation
+1. Clone the repository:
+```bash
+git clone https://github.com/JonathanMaverick/Bybit-Automation-Trading.git
+cd Bybit-Automation-Trading
+```
+2. Install the dependencies:
+```bash
+pip install -r requirements.txt
+```
+3. Create a `.env` file in the root directory and add your Bybit API key, secret, and other configurations
+```env
+API_KEY = ""
+API_SECRET = ""
+ACCOUNT_TYPE = ""
+DISCORD_WEBHOOK = ""
+```
+4. Run the script:
+```bash
+python main.py
+```
+
+
 ## Features
 
 - Connect to Bybit API using WebSocket and REST API
